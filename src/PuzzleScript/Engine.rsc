@@ -89,19 +89,49 @@ list[Layer] rotate_level(list[Layer] layers){
 	return new_layers;
 }
 
-str format_replacement(str pattern, str replacement, list[Layer] layers) {
-	return "
-	'list[Layer] layers = <layers>;
-	'if (<pattern> := layers) layers = <replacement>;
-	'layers;
-	'";
+str format_coords(list[Coords] indexes) {
+	list[str] coords = [];
+	
+	for (Coords index <- indexes){
+		str root = "coords<unique(index)>";
+		Coords neighbor = <index.x + 1, index.y, index.z>;
+		str neighbor_root = "coords<unique(neighbor)>";
+		if (!(neighbor in indexes)) continue;
+
+		coords += ["(<root>.x == (<neighbor_root>.x - 1) && <root>.y == <neighbor_root>.y)"];
+	}	
+	
+	if (isEmpty(coords)) return "true";
+	return intercalate(" && ", coords);
 }
 
-str format_pattern(str pattern, list[Layer] layers){
-	return "
+str format_eval(str pattern, str replacement, list[Layer] layers, list[Coords] indexes, bool is_match){
+	str e = "
+	'import IO;
+	'bool is_match = false;
 	'list[Layer] layers  = <layers>;
-	'<pattern> := layers;
-	'";
+	'for (<pattern> := layers){
+	'	println(xcoord0);
+	'	println(ycoord0);
+	'	if (<format_coords(indexes)>) {
+	'		<if (is_match){>
+	'		is_match = true;
+	'		<} else {>
+	'		layers = <replacement>;
+	'		<}>
+	' 		break;
+	'	}
+	'}
+	'<if (is_match){>
+	'is_match;
+	'<} else {>
+	'layers;
+	'<}>
+	'";	
+	
+	println(e);
+	
+	return e;
 }
 
 map[str, list[str]] directional_absolutes = (
@@ -111,8 +141,11 @@ map[str, list[str]] directional_absolutes = (
 	"up" :    ["up",    "down",  "right", "left" ] // ^
 );
 
-bool eval_pattern(str pattern, str relatives)
-	=	eval(#bool, [EVAL_PRESET, relatives, pattern]).val;
+bool eval_pattern(str pattern, str relatives) {
+	bool v = eval(#bool, [EVAL_PRESET, relatives, pattern]).val;
+	if(v) println(pattern);
+	return v;
+}
 
 list[str] ROTATION_ORDER = ["right", "up", "left", "down"];
 tuple[Engine, Level, Rule] apply_rule(Engine engine, Level level, Rule rule){
@@ -122,7 +155,7 @@ tuple[Engine, Level, Rule] apply_rule(Engine engine, Level level, Rule rule){
 	for (str dir <- ROTATION_ORDER){
 		if (dir in rule.directions){
 			str relatives = format_relatives(directional_absolutes[dir]);
-			while (all(str pattern <- rule.left, eval_pattern(format_pattern(pattern, layers), relatives))){
+			while (all(int i <- [0..size(rule.left)], eval_pattern(format_eval(rule.left[i], "", layers, rule.indexes[i], true), relatives))){
 				rule.used += 1;
 				int index = loops % size(rule.left);
 				
@@ -130,14 +163,18 @@ tuple[Engine, Level, Rule] apply_rule(Engine engine, Level level, Rule rule){
 					break;
 				}
 				
-				layers = eval(#list[Layer], [EVAL_PRESET, relatives, format_replacement(rule.left[index], rule.right[index], layers)]).val;
+				for (int i <- [0..size(rule.left)]){
+					layers = eval(#list[Layer], [EVAL_PRESET, relatives, format_eval(rule.left[i], rule.right[i], layers, rule.indexes[i], false)]).val;
+				}
+
 				loops += 1;
 				
-				if (index == 0 && layers == level.layers){
+				if (level.layers == layers || loops > MAX_LOOPS){
 					break;
-				} else if (loops > MAX_LOOPS) {
-					break;
+				} else {
+					changed = true;
 				}
+				
 			}
 		}
 		
@@ -195,7 +232,7 @@ tuple[Engine, Level] do_turn(Engine engine, Level level : level, str input){
 	
 	level = do_move(level);
 	
-	// post-run after the move
+	// post-run after the move (late rules)
 	do {
 		engine.again = false;
 		<engine, level> = rewrite(engine, level, true);
@@ -409,22 +446,22 @@ void print_level(Level l : level){
 	str pixel(str p : "trans") = ".";
 	default str pixel(str p) = p[0];
 	
-	//for (Layer lyr <- l.layers){
-	//	for (Line line <- lyr) {
-	//		print(intercalate("", [pixel(x.name) | x <- line]));
-	//		//print("   ");
-	//		//print(intercalate(" ", line));
-	//		println();
-	//	}
-	//	println();
-	//}
-	
-	for (Line line <- l.layers[-1]) {
-		print(intercalate("", [pixel(x.name) | x <- line]));
-		//print("   ");
-		//print(intercalate(" ", line));
+	for (Layer lyr <- l.layers){
+		for (Line line <- lyr) {
+			print(intercalate("", [pixel(x.name) | x <- line]));
+			print("   ");
+			print(intercalate(", ", [x.name | x <- line, x.name != "trans"]));
+			println();
+		}
 		println();
 	}
+	
+	//for (Line line <- l.layers[-3]) {
+	//	print(intercalate("", [pixel(x.name) | x <- line]));
+	//	//print("   ");
+	//	//print(intercalate(" ", line));
+	//	println();
+	//}
 	println();
 }
 

@@ -80,6 +80,7 @@ alias Rule = tuple[
 	set[str] directions,
 	list[str] left,
 	list[str] right,
+	list[list[Coords]] indexes,
 	int used,
 	RULEDATA original
 ];
@@ -90,6 +91,7 @@ Rule new_rule(RULEDATA r)
 		{}, 
 		{}, 
 		[], 
+		[],
 		[],
 		0, 
 		r
@@ -166,7 +168,7 @@ data RuleContent
 alias RulePart = list[RuleContent];
 
 // matching & replacement
-str empty_layer(int index, bool _) = "[ *layer<index> ]";
+str empty_layer(int index, bool _) = "[ *prefix_lines<index>, \n\t\t[ *prefix_objects<index>, \n\t\t*suffix_objects<index>], \n\t*suffix_lines<index> ]";
 str empty_level(bool _: true) = "[ *level ]";
 
 str layer(int index, list[str] stuff, bool is_pattern) 
@@ -177,7 +179,8 @@ str line(int index, list[str] stuff, bool _) {
 	return "[ *prefix_objects<index>, \n\t\t\t<compiled_stuff>, \n\t\t*suffix_objects<index> ]";
 }
 
-str unique(Coords index) = "<index.x>_<index.y>_<index.z>";
+//str unique(Coords index) = "<index.x>_<index.y>_<index.z>";
+str unique(Coords index) = "<index.x>_<index.z>";
 
 //ANY CHANGES TO THE VALUES ON THE RIGHT MUST BE MIRRORED IN THE FUNCTION BELOW
 map[str, str] relative_mapping = (
@@ -216,7 +219,9 @@ str absolufy(str force) {
 }
 
 str coords(Coords index, bool _: true)
-	= "Coords coords<unique(index)> : \<xcoord<index.x>, ycoord<index.x>, zcoord<unique(index)>\>";
+	//= "Coords coords<unique(index)> : \<xcoord<index.x>, ycoord<index.x>, zcoord<unique(index)>\>";
+	//= "Coords coords<unique(index)>";
+	= "\<xcoord<index.x> , ycoord<index.x>, <index.z>\>";
 
 str object(Coords index, RuleReference ref, Engine engine, bool is_pattern: true) {
 	str names = intercalate("|", ref.objects);
@@ -249,7 +254,8 @@ str absolufy(str force, Coords index) {
 }
 
 str coords(Coords index, bool _: false)
-	= "coords<unique(index)>";	
+	//= "coords<unique(index)>";
+	= "\<xcoord<index.x>, ycoord<index.x>, <index.z>\>";	
 	
 str transparent(Coords index)
 	= "transparent(\"trans\", -1, coords<unique(index)>)";
@@ -289,6 +295,7 @@ str format_compiled_layers(list[list[str]] compiled_layer, bool is_pattern){
 Rule compile_rulepart_left(Rule rule, Engine engine, RulePart left_contents, RulePart right_contents){
 	list[list[str]] compiled_layer = [];
 	list[set[str]] layers = engine.layers;
+	list[Coords] indexes = [];
 	
 	for (int b <- [0..size(layers)]){
 		set[str] lyr = layers[b];
@@ -302,6 +309,7 @@ Rule compile_rulepart_left(Rule rule, Engine engine, RulePart left_contents, Rul
 					Coords index = <i, j, b>;
 					RuleReference ref = refs[j];
 					if (!any(str x <- ref.objects, x in lyr)) continue;
+					indexes += [index];
 			        if (ref.force in ["none", "stationary", "no"]){
 			            compiled_lines += [object(index, ref, engine, true)];
 			        } else {
@@ -321,6 +329,7 @@ Rule compile_rulepart_left(Rule rule, Engine engine, RulePart left_contents, Rul
 		compiled_layer += [compiled_lines];
 	}
 	
+	rule.indexes += [indexes];
 	rule.left += [format_compiled_layers(compiled_layer, true)];
 	return rule;
 }
